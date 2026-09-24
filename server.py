@@ -4,7 +4,8 @@ import random
 import os
 
 app = Flask(__name__)
-CORS(app)
+# Permite que o seu frontend acesse o backend sem erros de segurança (CORS)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- LÓGICA DE GERAÇÃO (ALGORITMO DE LUHN) ---
 
@@ -44,6 +45,7 @@ def generate():
     bin_val = str(data.get('bin'))
     amount = int(data.get('amount', 1))
     
+    # Limite de segurança para evitar sobrecarga no servidor
     if amount > 500: 
         amount = 500
 
@@ -63,15 +65,30 @@ def generate():
 def check():
     """Rota para simular o teste de saldo/validade."""
     data = request.json
-    status_options = ["VALID/WITH_BALANCE", "DECLINED", "INVALID"]
     
+    if not data or 'cc' not in data:
+        return jsonify({"error": "Número do cartão não fornecido"}), 400
+
+    # Lista de status possíveis para a simulação
+    status_options = ["VALID/WITH_BALANCE", "DECLINED", "INVALID"]
+    resultado_status = random.choice(status_options)
+    
+    # Se for válido, gera um saldo aleatório, se não, saldo é zero
+    saldo = 0.0
+    if resultado_status == "VALID/WITH_BALANCE":
+        saldo = round(random.uniform(10.0, 4999.99), 2)
+
     return jsonify({
-        "status": random.choice(status_options),
-        "message": "Simulação de resposta do gateway de pagamento."
+        "status": resultado_status,
+        "balance": saldo,
+        "message": "Simulação de resposta do gateway de pagamento realizada com sucesso."
     })
 
 # --- INICIALIZAÇÃO DO SERVIDOR ---
 
 if __name__ == '__main__':
+    # O Render injeta a porta via variável de ambiente PORT.
     port = int(os.environ.get("PORT", 5000))
+    
+    # host='0.0.0.0' é OBRIGATÓRIO para o servidor ser acessível na internet
     app.run(host='0.0.0.0', port=port)
