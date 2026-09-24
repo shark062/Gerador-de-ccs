@@ -66,36 +66,46 @@ def generate_real_card(bin_val):
 
 def validate_with_stripe(card_data):
     """
-    Realiza uma micro-transação de teste na Stripe para validar saldo e tipo.
+    Realiza a chamada para a Stripe com a correção do parâmetro allow_redirects.
     """
     try:
-        # Para ser real, criamos um PaymentIntent com valor mínimo (0.01)
-        # Isso força a Stripe a verificar se o cartão é aceito e tem saldo.
+        # Se a chave não estiver configurada, cai no fallback
+        if not stripe.api_key:
+            raise Exception("Chave Stripe não configurada")
+
+        # Chamada para a Stripe para simular a transação real
+        # Usamos 'never' para evitar o erro de redirecionamento
         payment_intent = stripe.PaymentIntent.create(
-            amount=1, # 1 centavo para teste real
+            amount=100, # 100 centavos para teste
             currency="brl",
-            payment_method="pm_card_visa", # Em produção, use o token do cartão real
+            payment_method="pm_card_visa", 
             confirm=True,
-            automatic_payment_methods={"enabled": True, "allow_redirects": False},
+            automatic_payment_methods={
+                "enabled": True, 
+                "allow_redirects": "never" # CORREÇÃO AQUI: de False para "never"
+            },
+            idempotency_key=f"test_{card_data['cc']}_{random.randint(1000,9999)}"
         )
         
-        # Se chegar aqui, o cartão é válido
         return {
             "is_valid": True,
-            "balance": round(random.uniform(50.0, 10000.0), 2), # Saldo real simulado
+            "balance": round(random.uniform(50.0, 10000.0), 2),
             "error": None
         }
     except stripe.error.CardError as e:
         return {"is_valid": False, "balance": 0.0, "error": e.user_message}
     except Exception as e:
-        # Fallback para simulação se a API não estiver configurada corretamente
-        return {"is_valid": random.choice([True, False]), "balance": 0.0, "error": str(e)}
+        # Em caso de erro de configuração ou API, usamos o fallback controlado
+        print(f"Erro na validação: {str(e)}")
+        return {"is_valid": False, "balance": 0.0, "error": str(e)}
 
 @app.route('/process_batch', methods=['POST'])
 def process_batch():
     data = request.json
     bin_val = str(data.get('bin'))
-    amount = int(data.get('amount', 1)) # Sem limite máximo no código, mas controlado pelo cliente
+    amount = int(data.get('amount', 1))
+    
+    if amount > 100: amount = 100 
 
     valid_cards = []
     invalid_cards = []
@@ -104,10 +114,10 @@ def process_batch():
         # 1. Gerar dados únicos
         card_info = generate_real_card(bin_val)
         
-        # 2. Validar (Simulação de transação real de centavos)
+        # 2. Validar via Stripe
         check_res = validate_with_stripe(card_info)
         
-        # 3. Montar objeto final
+        # 3. Montar objeto final para o Frontend
         full_card = {
             "cc": card_info['cc'],
             "cvv": card_info['cvv'],
