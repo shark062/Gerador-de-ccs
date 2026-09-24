@@ -91,7 +91,7 @@ def process_batch():
     amount = int(data.get('amount', 1))
     payment_method_id = data.get('payment_method_id') # IMPORTANTE: Receber o ID aqui
 
-    if amount > 10: amount = 10 # Limite de segurança para testes
+    if amount > 200: amount = 200 # Limite de segurança para testes
     
     valid_cards = []
     invalid_cards = []
