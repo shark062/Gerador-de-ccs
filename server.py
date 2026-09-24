@@ -1,69 +1,48 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import stripe  # Biblioteca oficial da Stripe
+import stripe
+import random
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# CONFIGURAÇÃO DA STRIPE
-# A chave deve ser configurada no painel do Render como STRIPE_SECRET_KEY
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# --- FUNÇÃO DE GERAÇÃO (Luhn) ---
 def generate_luhn(bin_num):
     cc = list(map(str, bin_num))
     while len(cc) < 15:
-        cc.append(str(os.urandom(1)[0] % 10)) # Usando os para mais aleatoriedade
-    
+        cc.append(str(random.randint(0, 9)))
     digits = [int(d) for d in cc]
     odd_digits = digits[-1::-2]
     even_digits = digits[-2::-2]
     total = sum(odd_digits)
     for d in even_digits:
         total += sum(divmod(d * 2, 10))
-    
     for i in range(10):
         if (total + i) % 10 == 0:
             cc.append(str(i))
             break
     return "".join(cc)
 
-# --- FUNÇÃO DE VERIFICAÇÃO REAL (INTEGRAÇÃO STRIPE) ---
-def check_card_real(cc_number, cvv, expiry):
-    """
-    Faz uma chamada real para a API da Stripe para validar o cartão.
-    """
-    try:
-        # NOTA: Em um ambiente real, você usaria um Token ou PaymentMethod.
-        # Aqui simulamos a criação de um SetupIntent para validar o cartão sem cobrar.
-        
-        # Exemplo de fluxo real (Pseudo-código de integração):
-        # 1. Criar um cliente
-        # 2. Tentar validar o método de pagamento
-        
-        # Para fins de implementação imediata, vamos simular a resposta da API
-        # para que o código não quebre sem uma chave real configurada.
-        if not stripe.api_key:
-            return {"is_valid": False, "error": "API Key não configurada"}
+def check_card_real(cc_number):
+    # Simulação da lógica Stripe
+    if not stripe.api_key:
+        return {"is_valid": False, "error": "API Key missing"}
 
-        # Simulação de resposta da Stripe para o fluxo de validação
-        # Em produção, você substituiria isso pelo retorno do stripe.PaymentMethod.create(...)
-        is_valid = True # Simulação
-        
-        return {
-            "is_valid": is_valid,
-            "balance": 1500.00, # Saldo simulado vindo da resposta da API
-            "cvv": cvv,
-            "expiry": expiry
-        }
-    except Exception as e:
-        print(f"Erro Stripe: {str(e)}")
-        return {"is_valid": False, "error": str(e)}
+    # Simulando resposta de gateway
+    is_valid = random.choice([True, False]) 
+    balance = round(random.uniform(10.0, 4999.0), 2) if is_valid else 0.0
+    
+    return {
+        "is_valid": is_valid,
+        "balance": balance,
+        "cvv": random.randint(100, 999),
+        "expiry": f"{random.randint(1,12):02d}/{random.randint(25,30)}"
+    }
 
 @app.route('/process_batch', methods=['POST'])
 def process_batch():
-    """Rota principal: Gera, Testa e Filtra tudo de uma vez."""
     data = request.json
     bin_val = str(data.get('bin'))
     amount = int(data.get('amount', 1))
@@ -74,26 +53,17 @@ def process_batch():
     invalid_cards = []
 
     for _ in range(amount):
-        # 1. Gera o número
         cc_num = generate_luhn(bin_val)
-        
-        # 2. Define dados de teste (Em produção, o usuário envia ou você gera)
-        # Para o gerador, simulamos CVV e validade
-        test_cvv = "123" 
-        test_expiry = "12/28"
-
-        # 3. Testa o cartão via Stripe
-        check_res = check_card_real(cc_num, test_cvv, test_expiry)
+        check_res = check_card_real(cc_num)
         
         card_data = {
             "cc": cc_num,
-            "cvv": check_res.get('cvv', test_cvv),
-            "expiry": check_res.get('expiry', test_expiry),
-            "balance": check_res.get('balance', 0.0)
+            "cvv": check_res['cvv'],
+            "expiry": check_res['expiry'],
+            "balance": check_res['balance']
         }
 
-        # 4. Filtra (Categoriza)
-        if check_res.get('is_valid'):
+        if check_res['is_valid']:
             valid_cards.append(card_data)
         else:
             invalid_cards.append(card_data)
