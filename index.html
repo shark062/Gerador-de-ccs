@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CC Generator Pro | Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+        .btn-primary { background-color: #3b82f6; transition: all 0.3s; }
+        .btn-primary:hover { background-color: #2563eb; transform: translateY(-2px); }
+        .status-valid { color: #22c55e; font-weight: bold; }
+        .status-declined { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 md:p-10">
+
+    <div class="max-w-4xl w-full">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-blue-500">CC Generator <span class="text-white">Pro</span></h1>
+            <p class="text-slate-400">Gerador de dados de cartão com simulação de gateway</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Painel de Configuração -->
+            <div class="card p-6 rounded-xl shadow-2xl">
+                <h2 class="text-xl font-semibold mb-4 border-b border-slate-700 pb-2">Configurações</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">BIN (Início do cartão)</label>
+                        <input type="text" id="bin" placeholder="Ex: 453212" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Quantidade</label>
+                        <input type="number" id="amount" value="1" min="1" max="50" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                    </div>
+
+                    <button onclick="gerarCartoes()" class="w-full btn-primary text-white font-bold py-3 rounded-lg mt-4 shadow-lg">
+                        Gerar Dados
+                    </button>
+                </div>
+            </div>
+
+            <!-- Painel de Status/Logs -->
+            <div class="card p-6 rounded-xl shadow-2xl">
+                <h2 class="text-xl font-semibold mb-4 border-b border-slate-700 pb-2">Status do Sistema</h2>
+                <div id="status-log" class="text-sm text-slate-400 h-32 overflow-y-auto italic">
+                    Aguardando comando...
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabela de Resultados -->
+        <div class="mt-10 card p-6 rounded-xl shadow-2xl overflow-hidden">
+            <h2 class="text-xl font-semibold mb-4">Resultados da Geração</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-900 text-slate-400 uppercase text-xs">
+                        <tr>
+                            <th class="p-3">Número do Cartão</th>
+                            <th class="p-3">Validade</th>
+                            <th class="p-3">CVV</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3">Saldo (Simulado)</th>
+                            <th class="p-3">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-corpo" class="divide-y divide-slate-700">
+                        <!-- Linhas serão inseridas aqui -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // URL DO SEU BACKEND (SUBSTITUA PELA SUA URL REAL)
+        const API_URL = 'https://gerador-de-ccs.onrender.com';
+
+        async function gerarCartoes() {
+            const bin = document.getElementById('bin').value;
+            const amount = document.getElementById('amount').value;
+            const log = document.getElementById('status-log');
+            const tabela = document.getElementById('tabela-corpo');
+
+            if (!bin) { alert("Insira um BIN!"); return; }
+
+            log.innerHTML = "Iniciando requisição ao servidor...";
+            tabela.innerHTML = ""; // Limpa a tabela
+
+            try {
+                const response = await fetch(`${API_URL}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bin: bin, amount: parseInt(amount) })
+                });
+
+                if (!response.ok) throw new Error("Erro na API");
+
+                const cartoes = await response.json();
+                log.innerHTML = `Sucesso: ${cartoes.length} cartões gerados.`;
+                
+                cartoes.forEach(cc => adicionarLinha(cc));
+
+            } catch (error) {
+                log.innerHTML = `<span class="text-red-500">Erro: ${error.message}</span>`;
+            }
+        }
+
+        function adicionarLinha(dados) {
+            const tabela = document.getElementById('tabela-corpo');
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-800 transition-colors";
+
+            tr.innerHTML = `
+                <td class="p-3 font-mono">${dados.cc}</td>
+                <td class="p-3">${dados.month}/${dados.year}</td>
+                <td class="p-3">${dados.cvv}</td>
+                <td class="p-3"><span class="text-yellow-500">PENDENTE</span></td>
+                <td class="p-3 text-slate-400">--</td>
+                <td class="p-3">
+                    <button onclick="testarCartao('${dados.cc}', this)" class="bg-blue-600 hover:bg-blue-700 text-xs px-3 py-1 rounded">
+                        Testar
+                    </button>
+                </td>
+            `;
+            tabela.appendChild(tr);
+        }
+
+        async function testarCartao(numero, botao) {
+            botao.innerText = "Testando...";
+            botao.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cc: numero })
+                });
+
+                const resultado = await response.json();
+                const linha = botao.closest('tr');
+                
+                // Simulação de dados de saldo para o exemplo
+                const saldoSimulado = (Math.random() * 5000).toFixed(2);
+
+                // Atualiza a linha com os dados do teste
+                const statusCel = linha.cells[3];
+                const saldoCel = linha.cells[4];
+
+                if (resultado.status === "VALID/WITH_BALANCE") {
+                    statusCel.innerHTML = `<span class="status-valid">VALIDO</span>`;
+                    saldoCel.innerHTML = `<span class="text-green-400">$ ${saldoSimulado}</span>`;
+                } else {
+                    statusCel.innerHTML = `<span class="status-declined">DECLINADO</span>`;
+                    saldoCel.innerHTML = `<span class="text-red-400">$ 0.00</span>`;
+                }
+
+            } catch (error) {
+                alert("Erro ao testar cartão!");
+                botao.innerText = "Erro";
+            }
+        }
+    </script>
+</body>
+  </html>
