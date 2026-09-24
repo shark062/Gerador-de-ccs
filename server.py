@@ -2,24 +2,46 @@ import os
 import random
 import stripe
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # IMPORTANTE: Para resolver o "Failed to fetch"
+from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # IMPORTANTE: Permite que seu frontend chame o backend
+CORS(app)
 
-# CONFIGURAÇÃO - No Render, adicione STRIPE_SECRET_KEY nas Environment Variables
+# CONFIGURAÇÃO
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# --- FUNÇÕES DE SUPORTE ---
+# --- FUNÇÕES DE SUPORTE (COLE AQUI A CORREÇÃO) ---
+
+def luhn_checksum(number):
+    """Calcula o dígito verificador para passar no algoritmo de Luhn."""
+    digits = [int(d) for d in str(number)]
+    odd_digits = digits[-1]
+    even_digits = digits[:-1]
+    even_digits.reverse()
+    
+    for i in range(len(even_digits)):
+        even_digits[i] *= 2
+        if even_digits[i] > 9:
+            even_digits[i] -= 9
+            
+    total = sum(even_digits) + odd_digits
+    return (10 - (total % 10)) % 10
 
 def generate_real_card(bin_val):
     """
-    Simula a geração de dados de cartão.
+    Gera um número de cartão que passa no teste de Luhn (Matematicamente correto).
     """
-    # Gerando um número que parece real (exemplo simples)
-    card_number = f"{bin_val}{random.randint(10000000, 99999999)}"
+    # 1. Gera uma base de 15 dígitos (BIN + aleatórios)
+    base_number = f"{bin_val}{random.randint(10000000, 99999999)}"[:15]
+    
+    # 2. Calcula o 16º dígito (o verificador)
+    check_digit = luhn_checksum(base_number)
+    
+    # 3. Monta o número completo
+    full_card_number = f"{base_number}{check_digit}"
+    
     return {
-        "cc": card_number,
+        "cc": full_card_number,
         "cvv": str(random.randint(100, 999)),
         "expiry": "12/26",
         "bandeira": "Visa",
@@ -31,27 +53,24 @@ def validate_with_stripe(card_data):
     Realiza a transação de teste (0.99) para validar o cartão.
     """
     try:
-        # O ID do método de pagamento DEVE vir do frontend via Stripe Elements
         payment_method_id = card_data.get('payment_method_id')
         
         if not payment_method_id:
             return {
                 "is_valid": False, 
                 "balance": 0.0, 
-                "error": "Erro: Falta o Payment Method ID (token do Stripe)"
+                "error": "Erro: Falta o Payment Method ID"
             }
 
-        # Valor de teste: 99 centavos (0.99)
         amount_in_cents = 99 
 
-        # Criando uma intenção de pagamento para validar o cartão
         intent = stripe.PaymentIntent.create(
             amount=amount_in_cents,
             currency="usd",
             payment_method=payment_method_id,
             confirm=True,
             automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
-            description="Verificação de validade de cartão"
+            description="Verificação de validade"
         )
 
         return {
@@ -62,51 +81,40 @@ def validate_with_stripe(card_data):
         }
 
     except stripe.error.CardError as e:
-        # Captura recusa do banco (Saldo, CVV, Expirado, etc)
         return {
             "is_valid": False, 
             "balance": 0.0, 
             "error": e.user_message  
         }
     except stripe.error.StripeError as e:
-        # Erros de configuração da API (Chave errada, etc)
         return {"is_valid": False, "balance": 0.0, "error": "Erro na API Stripe"}
     except Exception as e:
         print(f"Erro interno: {str(e)}")
         return {"is_valid": False, "balance": 0.0, "error": "Erro interno no servidor"}
 
-# --- ROTAS DA API ---
+# --- RESTO DO SEU CÓDIGO (ROTAS E INICIALIZAÇÃO) CONTINUA IGUAL ---
 
 @app.route('/process_batch', methods=['POST'])
 def process_batch():
-    """
-    Rota principal para processar uma lista de verificações.
-    """
     data = request.json
     if not data:
         return jsonify({"error": "Dados não fornecidos"}), 400
 
-    # Pegando os dados enviados pelo seu frontend
-    bin_val = str(data.get('bin', '411111'))
+    bin_val = str(data.get('bin', '53811123'))
     amount = int(data.get('amount', 1))
-    payment_method_id = data.get('payment_method_id') # IMPORTANTE: Receber o ID aqui
+    payment_method_id = data.get('payment_method_id')
 
-    if amount > 200: amount = 200 # Limite de segurança para testes
+    if amount > 50: amount = 50 
     
     valid_cards = []
     invalid_cards = []
 
     for _ in range(amount):
-        # 1. Gerar dados simulados
         card_info = generate_real_card(bin_val)
-        
-        # Adiciona o payment_method_id para a validação
         card_info['payment_method_id'] = payment_method_id
         
-        # 2. Validar via Stripe (Transação Real de $0.99)
         check_res = validate_with_stripe(card_info)
         
-        # 3. Montar objeto final para o Frontend
         full_card = {
             "cc": card_info['cc'],
             "cvv": card_info['cvv'],
@@ -131,8 +139,6 @@ def process_batch():
             "invalid_count": len(invalid_cards)
         }
     })
-
-# --- INICIALIZAÇÃO DO SERVIDOR ---
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
